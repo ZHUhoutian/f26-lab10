@@ -72,6 +72,32 @@ class RaceTest {
         assertEquals(1, confirmedCount(real), "CONFIRMED bookings for " + WEAN + " [540, 600)");
     }
 
+    /**
+     * After the fix the check and the write are one store call, so this is the
+     * nearest a test can park to the old gap: just after that call returns. B
+     * runs while A has not finished book(), and has to be turned away.
+     */
+    @Test
+    void secondCustomerIsRejectedWhileFirstIsParkedAfterTheAtomicInsert() throws InterruptedException {
+        InMemoryBookingStore real = new InMemoryBookingStore();
+        PausingStore gated = new PausingStore(real, "insertIfFree", 1);
+        BookingService service = new BookingService(gated, ROOMS);
+
+        Thread customerA = new Thread(() -> service.book(WEAN, 540, 600), "customer-A");
+        customerA.start();
+        gated.awaitPaused();
+
+        Thread customerB = new Thread(() -> service.book(WEAN, 540, 600), "customer-B");
+        customerB.start();
+        customerB.join(PausingStore.TIMEOUT_MILLIS);
+
+        gated.release();
+        customerA.join(PausingStore.TIMEOUT_MILLIS);
+
+        System.out.println("gate fired=" + gated.fired() + " insertIfFree calls=" + gated.targetCallCount());
+        assertEquals(1, confirmedCount(real), "CONFIRMED bookings for " + WEAN + " [540, 600)");
+    }
+
     private static int confirmedCount(InMemoryBookingStore store) {
         int count = 0;
         for (Booking booking : store.bookingsForRoom(WEAN)) {
@@ -108,8 +134,8 @@ class RaceTest {
     //   new PausingStore(real, "bookingsForRoom", 1)   // park call 1
     //   new PausingStore(real, "insert", 3)            // park call 3 of insert
     //
-    // Valid method names are the four on BookingStore: hasOverlap, insert,
-    // bookingsForRoom, cancelAndPromote. On the chosen call the wrapper
+    // Valid method names are the five on BookingStore: hasOverlap, insert,
+    // insertIfFree, bookingsForRoom, cancelAndPromote. On the chosen call the wrapper
     // delegates, then parks the calling thread before returning the answer it
     // already computed. The gate fires once and once only.
     // ------------------------------------------------------------------
