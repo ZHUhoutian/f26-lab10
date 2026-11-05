@@ -53,6 +53,33 @@ you missed. Leave the table as you first wrote it.
 that pair pins the schedule you predicted, and the output of two separate
 runs (assertion failure and log lines).
 
+Aim: `new PausingStore(real, "hasOverlap", 1)`. Call 1 is customer A's check, so
+A is parked after it read "free" and before it can insert. That holds A inside
+the gap while B runs `book()` start to finish.
+
+The run matched the prediction, including `gate fired=true` with 2 `hasOverlap`
+calls.
+
+Run 1:
+
+```
+2026-11-05T21:13:12.504Z INFO booking.confirmed booking=bk-1 room=WEH-5409 start=540 end=600
+2026-11-05T21:13:12.505Z INFO booking.confirmed booking=bk-2 room=WEH-5409 start=540 end=600
+gate fired=true hasOverlap calls=2
+[ERROR] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.027 s <<< FAILURE! -- in edu.cmu.cs214.lab10.harness.RaceTest
+org.opentest4j.AssertionFailedError: CONFIRMED bookings for WEH-5409 [540, 600) ==> expected: <1> but was: <2>
+```
+
+Run 2:
+
+```
+2026-11-05T21:13:13.416Z INFO booking.confirmed booking=bk-1 room=WEH-5409 start=540 end=600
+2026-11-05T21:13:13.418Z INFO booking.confirmed booking=bk-2 room=WEH-5409 start=540 end=600
+gate fired=true hasOverlap calls=2
+[ERROR] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.025 s <<< FAILURE! -- in edu.cmu.cs214.lab10.harness.RaceTest
+org.opentest4j.AssertionFailedError: CONFIRMED bookings for WEH-5409 [540, 600) ==> expected: <1> but was: <2>
+```
+
 ---
 
 ## Milestone 2: the patch a teammate sent

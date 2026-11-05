@@ -1,12 +1,60 @@
 package edu.cmu.cs214.lab10.harness;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import edu.cmu.cs214.lab10.domain.Booking;
+import edu.cmu.cs214.lab10.domain.BookingStatus;
+import edu.cmu.cs214.lab10.domain.Room;
+import edu.cmu.cs214.lab10.service.BookingService;
+import edu.cmu.cs214.lab10.store.InMemoryBookingStore;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
 /**
- * Where your concurrency tests go.
- *
- * <p>Empty on purpose. The wiring you need is written out below; what to aim it
- * at, and what scenario to drive through it, is yours to work out.
+ * Concurrency tests that pin one interleaving with {@link PausingStore}. The
+ * wiring is written out below the tests.
  */
 class RaceTest {
+
+    private static final String WEAN = "WEH-5409";
+    private static final List<Room> ROOMS = List.of(
+            new Room(WEAN, "Wean 5409", 12),
+            new Room("GHC-4301", "Gates 4301", 30));
+
+    /**
+     * Parks customer A just after its overlap check, then lets customer B run
+     * start to finish. A resumes holding the answer it got before B booked.
+     */
+    @Test
+    void twoCustomersInTheCheckToInsertGapLeaveOneConfirmedBooking() throws InterruptedException {
+        InMemoryBookingStore real = new InMemoryBookingStore();
+        PausingStore gated = new PausingStore(real, "hasOverlap", 1);
+        BookingService service = new BookingService(gated, ROOMS);
+
+        Thread customerA = new Thread(() -> service.book(WEAN, 540, 600), "customer-A");
+        customerA.start();
+        gated.awaitPaused();
+
+        Thread customerB = new Thread(() -> service.book(WEAN, 540, 600), "customer-B");
+        customerB.start();
+        customerB.join(PausingStore.TIMEOUT_MILLIS);
+
+        gated.release();
+        customerA.join(PausingStore.TIMEOUT_MILLIS);
+
+        System.out.println("gate fired=" + gated.fired() + " hasOverlap calls=" + gated.targetCallCount());
+        assertEquals(1, confirmedCount(real), "CONFIRMED bookings for " + WEAN + " [540, 600)");
+    }
+
+    private static int confirmedCount(InMemoryBookingStore store) {
+        int count = 0;
+        for (Booking booking : store.bookingsForRoom(WEAN)) {
+            if (booking.status() == BookingStatus.CONFIRMED && booking.overlaps(540, 600)) {
+                count++;
+            }
+        }
+        return count;
+    }
 
     // ------------------------------------------------------------------
     // Wiring example 1: wrap the store
