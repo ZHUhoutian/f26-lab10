@@ -18,13 +18,17 @@ verdict for each. Add or remove rows as needed.
 
 | # | What you found (method, field, or class) | Verdict, in one line |
 |---|---|---|
-| 1 | | |
-| 2 | | |
-| 3 | | |
-| 4 | | |
+| 1 | `BookingService.book()`: `hasOverlap` then `insert` | **Race, explains the ticket.** Check-then-act: the store lock is released between the two calls, so the check can go stale. |
+| 2 | `book()` against `cancelBooking()` | Same root cause, not this ticket: a promotion can land between the check and the insert, but no ticketed booking was waitlisted or cancelled. |
+| 3 | `BookingStats` counters | Data race, intended: documented as approximate and nothing decides on them. The ticket's bad state is in the booking data. |
+| 4 | `InMemoryBookingStore` methods, `catalog`, `sequence`, `joinWaitlist()`, `listBookings()` | Safe: each is one atomic store call, a read of data that never changes, or an `AtomicLong`. |
 
-**Which one explains the ticket, and how you know.** Tie it to the invariant
-the ticket names.
+**Which one explains the ticket, and how you know.** Suspect 1. The invariant is
+"at most one CONFIRMED booking covering any given minute." Only `book()` and
+promotion write a CONFIRMED booking, and the ticket rules out promotion. In any
+serial order, the second `book()` sees the first and logs `booking.rejected`. The
+log instead shows two `booking.confirmed` lines 1 ms apart with no rejection, so
+both checks ran before either insert.
 
 ### Predicted interleaving (write this before you run your race test)
 
@@ -34,10 +38,11 @@ as your prediction needs.
 
 | Step | Thread A | Thread B |
 |---|---|---|
-| t1 | | |
-| t2 | | |
-| t3 | | |
-| | **End state:** | |
+| t1 | `book()`: `hasOverlap` (call 1) returns false; parked before returning | |
+| t2 | | `book()`: `hasOverlap` (call 2) returns false; not parked (one-shot gate) |
+| t3 | | inserts `bk-1` CONFIRMED and logs `booking.confirmed` |
+| t4 | released, still holding the stale false; inserts `bk-2` CONFIRMED and logs `booking.confirmed` | |
+| | **End state:** two CONFIRMED bookings for WEH-5409 `[540, 600)`, no `booking.rejected`; the test fails with expected 1, was 2 | |
 
 If the run turned out different from your prediction, add one line on what
 you missed. Leave the table as you first wrote it.
