@@ -46,6 +46,32 @@ class RaceTest {
         assertEquals(1, confirmedCount(real), "CONFIRMED bookings for " + WEAN + " [540, 600)");
     }
 
+    /**
+     * Same two customers, aimed at the teammate's re-check. With the patch,
+     * call 1 is A's check and call 2 is A's re-check, so A is parked after its
+     * last look at the store. B runs while A holds that answer.
+     */
+    @Test
+    void twoCustomersInTheRecheckToInsertGapLeaveOneConfirmedBooking() throws InterruptedException {
+        InMemoryBookingStore real = new InMemoryBookingStore();
+        PausingStore gated = new PausingStore(real, "hasOverlap", 2);
+        BookingService service = new BookingService(gated, ROOMS);
+
+        Thread customerA = new Thread(() -> service.book(WEAN, 540, 600), "customer-A");
+        customerA.start();
+        gated.awaitPaused();
+
+        Thread customerB = new Thread(() -> service.book(WEAN, 540, 600), "customer-B");
+        customerB.start();
+        customerB.join(PausingStore.TIMEOUT_MILLIS);
+
+        gated.release();
+        customerA.join(PausingStore.TIMEOUT_MILLIS);
+
+        System.out.println("gate fired=" + gated.fired() + " hasOverlap calls=" + gated.targetCallCount());
+        assertEquals(1, confirmedCount(real), "CONFIRMED bookings for " + WEAN + " [540, 600)");
+    }
+
     private static int confirmedCount(InMemoryBookingStore store) {
         int count = 0;
         for (Booking booking : store.bookingsForRoom(WEAN)) {

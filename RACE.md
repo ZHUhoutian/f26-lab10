@@ -1,3 +1,4 @@
+
 # RACE.md
 
 One section per milestone. Fill each one in order as you go.
@@ -86,11 +87,59 @@ org.opentest4j.AssertionFailedError: CONFIRMED bookings for WEH-5409 [540, 600) 
 
 **Your milestone-1 test on the patched code.** Green or red. Paste the result.
 
+Green. A parks before its re-check, so the re-check sees B's booking and A is
+rejected.
+
+```
+2026-11-05T21:21:43.906Z INFO booking.confirmed booking=bk-1 room=WEH-5409 start=540 end=600
+2026-11-05T21:21:43.910Z INFO booking.rejected room=WEH-5409 start=540 end=600 reason=slot already held
+gate fired=true hasOverlap calls=4
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+```
+
 **The re-aimed run.** Method name, call index, the pasted result, and one line
 on why that aim tests the patch rather than sidestepping it.
 
+Aim: `new PausingStore(real, "hasOverlap", 2)`, in
+`twoCustomersInTheRecheckToInsertGapLeaveOneConfirmedBooking`. Call 2 is A's
+re-check, so A is parked after its last look at the store and before `insert`.
+That is the window the patch claims to close, so the aim goes through the patch
+rather than around it. Red on both runs. `bk-2` logs first because A took `bk-1`
+before its re-check.
+
+Run 1:
+
+```
+2026-11-05T21:21:41.970Z INFO booking.confirmed booking=bk-2 room=WEH-5409 start=540 end=600
+2026-11-05T21:21:41.972Z INFO booking.confirmed booking=bk-1 room=WEH-5409 start=540 end=600
+gate fired=true hasOverlap calls=4
+[ERROR] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.027 s <<< FAILURE! -- in edu.cmu.cs214.lab10.harness.RaceTest
+org.opentest4j.AssertionFailedError: CONFIRMED bookings for WEH-5409 [540, 600) ==> expected: <1> but was: <2>
+```
+
+Run 2:
+
+```
+2026-11-05T21:21:42.969Z INFO booking.confirmed booking=bk-2 room=WEH-5409 start=540 end=600
+2026-11-05T21:21:42.971Z INFO booking.confirmed booking=bk-1 room=WEH-5409 start=540 end=600
+gate fired=true hasOverlap calls=4
+[ERROR] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.025 s <<< FAILURE! -- in edu.cmu.cs214.lab10.harness.RaceTest
+org.opentest4j.AssertionFailedError: CONFIRMED bookings for WEH-5409 [540, 600) ==> expected: <1> but was: <2>
+```
+
 **Your verdict.** Accept or reject, and what your milestone-1 result does and
 does not show about the patch.
+
+**Reject.** The patch adds another check but still releases the store lock before
+`insert`, so check-then-act remains and the gap only moves. The milestone 1 green
+shows the patch handles one ordering, where B inserts before A's re-check. It
+does not show the race is gone, because that test never parks a thread after the
+re-check. The re-aimed run does, and it breaks the invariant every time.
+
+The stress runner agrees, though it only supports the verdict: the patched code
+still had bad rounds in every run (2-4 per 100, 3-5 per 2000, 14 per 20000),
+against the teammate's report of none. The patch makes the race rarer and so
+harder to catch, which is not a fix.
 
 ---
 
